@@ -23,15 +23,37 @@ impl CommitMessageFetcher {
         })
     }
 
-    pub fn fetch_messages(&mut self, from_sha: &str, to_sha: &str) -> Result<Vec<String>, Error> {
-        todo!("implement me pls");
+    pub fn fetch_messages(
+        &mut self,
+        from_sha: &str,
+        to_sha: &str,
+    ) -> Result<Vec<(String, String)>, Error> {
+        let mut result = Vec::<(String, String)>::new();
+
+        let mut rev_walk = self.repository.revwalk()?;
+        rev_walk.push_range(&format!("{}^..{}", from_sha, to_sha))?;
+
+        for oid_result in rev_walk {
+            let oid = oid_result?;
+            let commit = self.repository.find_commit(oid)?;
+            if let Some(commit_message) = commit.message() {
+                result.push((oid.to_string(), commit_message.to_owned()));
+            } else {
+                return Err(Error::NoneError(format!(
+                    "commit with empty message: {:?}",
+                    &commit
+                )));
+            }
+        }
+
+        Ok(result)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::HOME_DIR;
+    const HOME_DIR: &'static str = env!("HOME");
 
     #[test]
     fn construct_fetcher_with_valid_local_repo() {
@@ -55,16 +77,19 @@ mod tests {
         let mut fetcher = CommitMessageFetcher::new(path_for_this_repo).unwrap();
 
         let result = fetcher.fetch_messages(
-            "b375e53cfe6fe5b1ef9a42a213d959f2bffa7dc8",
             "cdfa788ae3caf7d9bbb3d74fe4419b339c0dadd2",
+            "a7ff5a7c14755e1ab438256437d0798dde0b487c",
         );
 
         let commit_messages = result.unwrap();
         assert_eq!(commit_messages.len(), 2);
-        assert_eq!(commit_messages[0], "Initial commit");
         assert_eq!(
-            commit_messages[1],
-            "Add some dependencies that'll be needed"
+            commit_messages[0].1,
+            "Begin implementing logic to fetch git commits\n"
+        );
+        assert_eq!(
+            commit_messages[1].1,
+            "Add some dependencies that'll be needed\n"
         );
     }
 }

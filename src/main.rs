@@ -8,13 +8,18 @@ use git::CommitMessageFetcher;
 use pivotal_tracker::Story;
 
 #[derive(Debug, StructOpt)]
+/// Utility to generate GitHub release notes for a repository containing commits referencing Pivotal Tracker stories
 struct Cli {
+    /// Absolute path to git repository
     #[structopt(short, long)]
     pub path: std::path::PathBuf,
+    /// Reference to begin range of commits to inspect
     #[structopt(long)]
     pub from: String,
+    /// Reference to end range of commits to inspect
     #[structopt(long)]
     pub to: String,
+    /// Pivotal Tracker API token used to fetch story information
     #[structopt(long, env = "TRACKER_API_TOKEN")]
     pub token: String,
 }

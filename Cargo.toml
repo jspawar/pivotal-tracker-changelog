@@ -1,5 +1,5 @@
 [package]
-name = "git-pivotal-tracker-changelog"
+name = "pivotal-tracker-changelog"
 version = "0.0.1"
 authors = ["Jaskanwal Pawar"]
 edition = "2018"

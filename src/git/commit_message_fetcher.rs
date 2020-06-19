@@ -58,7 +58,7 @@ mod tests {
     #[test]
     fn construct_fetcher_with_valid_local_repo() {
         // TODO: use something that can run in CI
-        let valid_local_repo = format!("{}/workspace/git-pivotal-tracker-changelog", HOME_DIR);
+        let valid_local_repo = format!("{}/workspace/pivotal-tracker-changelog", HOME_DIR);
         let fetcher = CommitMessageFetcher::new(valid_local_repo);
         assert!(fetcher.is_ok());
     }
@@ -73,7 +73,7 @@ mod tests {
     #[test]
     fn fetch_messages_with_valid_range() {
         // TODO: use something that can run in CI
-        let path_for_this_repo = format!("{}/workspace/git-pivotal-tracker-changelog", HOME_DIR);
+        let path_for_this_repo = format!("{}/workspace/pivotal-tracker-changelog", HOME_DIR);
         let mut fetcher = CommitMessageFetcher::new(path_for_this_repo).unwrap();
 
         let result = fetcher.fetch_messages(

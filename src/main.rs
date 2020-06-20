@@ -1,6 +1,7 @@
 mod git;
 mod pivotal_tracker;
 
+use futures::{prelude::*, stream::futures_unordered::FuturesUnordered};
 use regex::Regex;
 use structopt::StructOpt;
 
@@ -24,11 +25,10 @@ struct Cli {
     pub token: String,
 }
 
-fn main() {
+#[tokio::main]
+async fn main() -> Result<(), ()> {
     let args = Cli::from_args();
-    // 1. get story IDs
-    // 2. fetch story object from remote for each story ID
-    // 3. produce something like "- {story.name} [details](story.url)"
+
     let mut commit_message_fetcher = CommitMessageFetcher::new(
         args.path
             .to_str()
@@ -66,7 +66,6 @@ fn main() {
         })
         .collect();
 
-    // TODO: send requests concurrently/in parallel for better pef pls
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(
         "X-TrackerToken",
@@ -74,30 +73,44 @@ fn main() {
             todo!("omg how many errors do i need to handle");
         }),
     );
-    let client = reqwest::blocking::Client::builder()
+    let client = reqwest::Client::builder()
         .default_headers(headers)
         .build()
         .unwrap_or_else(|_| {
             todo!("handle this error pls");
         });
-    let mut stories: Vec<Story> = Vec::new();
+    let mut futures = FuturesUnordered::new();
     // TODO: if first part of tuple isn't needed...maybe don't need a tuple :shrug:
     for (_, story_id) in sha_story_id_pairs {
-        let resp = client
-            .get(&format!(
-                "https://www.pivotaltracker.com/services/v5/stories/{}",
-                &story_id
-            ))
-            .send()
-            .unwrap_or_else(|e| {
-                todo!("better error handling here pls: {:?}", e);
-            });
-        match resp.json::<Story>() {
+        let client_ref = &client;
+        futures.push(async move {
+            client_ref
+                .get(&format!(
+                    "https://www.pivotaltracker.com/services/v5/stories/{}",
+                    story_id
+                ))
+                .send()
+                .await
+                .unwrap_or_else(|e| {
+                    todo!("better error handling here pls: {:?}", e);
+                })
+                .json::<Story>()
+                .await
+        });
+    }
+
+    let mut stories: Vec<Story> = Vec::new();
+    while let Some(result) = futures.next().await {
+        match result {
             Ok(story) => {
                 stories.push(story);
             }
-            _ => {}
-        };
+            Err(e) => {
+                // TODO: handle this better/clean up message at least?
+                eprintln!("failed to deserialize response body into story: {:?}", &e);
+                eprintln!("response status code: {:?}", &e.status());
+            }
+        }
     }
     stories.sort_by(|a, b| a.id.cmp(&b.id));
     stories.dedup();
@@ -105,4 +118,5 @@ fn main() {
     for story in stories {
         println!("- {} [details]({})", &story.name, &story.url);
     }
+    Ok(())
 }

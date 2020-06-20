@@ -6,7 +6,7 @@ use regex::Regex;
 use structopt::StructOpt;
 
 use git::CommitMessageFetcher;
-use pivotal_tracker::Story;
+use pivotal_tracker::{Story, StoryFetcher};
 
 #[derive(Debug, StructOpt)]
 /// Utility to generate GitHub release notes for a repository containing commits referencing Pivotal Tracker stories
@@ -48,23 +48,14 @@ async fn main() -> Result<(), ()> {
             panic!("Invalid input git repository: {:?}", e);
         });
 
-    let re = Regex::new(r#".*\[(?:finishes\s){0,1}#(\d+)\].*"#).unwrap_or_else(|_| {
-        todo!("better error message here pls");
-    });
-    let sha_message_with_story_pairs: Vec<&(String, String)> = commit_message_pairs
-        .iter()
-        .filter(|c| re.is_match(&c.1))
-        .collect();
-    let sha_story_id_pairs: Vec<(&String, String)> = sha_message_with_story_pairs
-        .iter()
-        .map(|c| {
-            let cap = re.captures(&c.1).unwrap_or_else(|| {
-                todo!("better error message here pls");
-            });
-            // TODO: check the value exists
-            (&c.0, cap[1].to_owned())
-        })
-        .collect();
+    let messages = commit_message_pairs
+        .into_iter()
+        .map(|(_, s)| s)
+        .collect::<Vec<String>>();
+    let story_ids =
+        StoryFetcher::story_ids_from_commit_messages(&messages[..]).unwrap_or_else(|e| {
+            todo!("handle this error better: {:?}", e);
+        });
 
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(
@@ -81,7 +72,7 @@ async fn main() -> Result<(), ()> {
         });
     let mut futures = FuturesUnordered::new();
     // TODO: if first part of tuple isn't needed...maybe don't need a tuple :shrug:
-    for (_, story_id) in sha_story_id_pairs {
+    for story_id in story_ids {
         let client_ref = &client;
         futures.push(async move {
             client_ref

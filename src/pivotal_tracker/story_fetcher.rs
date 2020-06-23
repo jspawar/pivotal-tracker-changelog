@@ -1,11 +1,10 @@
-use crate::pivotal_tracker::{Error, Story};
+use crate::pivotal_tracker::{Error, TrackerResponse};
 use futures::{prelude::*, stream::futures_unordered::FuturesUnordered};
 use regex::Regex;
 
 const TRACKER_API_TOKEN_HEADER: &'static str = "X-TrackerToken";
 
 pub struct StoryFetcher {
-    tracker_api_token: String,
     client: reqwest::Client,
 }
 
@@ -25,7 +24,7 @@ impl StoryFetcher {
     pub fn story_ids_from_commit_messages<'a>(
         commit_messages: &'a [String],
     ) -> Result<Vec<&'a str>, Error> {
-        let re = Regex::new(r#"\[(?:finishes\s){0,1}#(\d+)\]"#)?;
+        let re = Regex::new(r#"\[(?i)(?:finishes\s){0,1}#(\d+)\]"#)?;
 
         Ok(commit_messages
             .iter()
@@ -45,7 +44,7 @@ impl StoryFetcher {
             .collect::<Vec<&str>>())
     }
 
-    pub async fn fetch_stories(&self, story_ids: Vec<&str>) -> Result<Vec<Story>, Error> {
+    pub async fn fetch_stories(&self, story_ids: Vec<&str>) -> Result<Vec<TrackerResponse>, Error> {
         let mut futures = FuturesUnordered::new();
         for story_id in story_ids {
             // TODO: deserialize to a union type to handle error responses (e.g. any 4xx error)
@@ -57,12 +56,12 @@ impl StoryFetcher {
                     ))
                     .send()
                     .await?
-                    .json::<Story>()
+                    .json::<TrackerResponse>()
                     .await
             });
         }
 
-        let mut stories: Vec<Story> = Vec::new();
+        let mut stories: Vec<TrackerResponse> = Vec::new();
         while let Some(result) = futures.next().await {
             stories.push(result?);
         }
@@ -80,7 +79,8 @@ mod tests {
             "commit with id: [#1234]".to_owned(),
             "no story id here!".to_owned(),
             "another one with id: [#5678]".to_owned(),
-            "message with three ids: [#9012], [finishes #3456], [#7890]".to_owned(),
+            "message with three ids: [FINISHES #9012], [finishes #3456], [Finishes #7890]"
+                .to_owned(),
         ];
         let mut story_ids =
             StoryFetcher::story_ids_from_commit_messages(&commit_messages[..]).unwrap();
@@ -104,7 +104,16 @@ mod tests {
         let fetcher = StoryFetcher::new(tracker_api_token.to_owned()).unwrap();
         let story_ids = vec!["173185328", "173185318", "173185203"];
 
-        let mut stories = fetcher.fetch_stories(story_ids).await.unwrap();
+        let responses = fetcher.fetch_stories(story_ids).await.unwrap();
+        let mut stories: Vec<Story> = responses
+            .into_iter()
+            .map(|r| match r {
+                TrackerResponse::StoryResponse(story) => story,
+                _ => {
+                    panic!("received an unexpected variant for Tracker response");
+                }
+            })
+            .collect();
         // sort result to make it easier to assert against
         stories.sort_by(|a, b| a.id.cmp(&b.id));
 
@@ -122,5 +131,27 @@ mod tests {
             stories[2].name,
             "**API** client can **list** app usage events"
         );
+    }
+
+    #[tokio::test]
+    async fn fetch_stories_returns_expected_errors() {
+        let tracker_api_token = "TODO".to_owned();
+        let fetcher = StoryFetcher::new(tracker_api_token).unwrap();
+        let story_ids = vec!["does-not-exist"];
+
+        let responses = fetcher.fetch_stories(story_ids).await.unwrap();
+        match responses[0] {
+            TrackerResponse::ErrorResponse(ref error) => {
+                assert_eq!(error.kind, "error");
+                assert_eq!(error.code, "invalid_authentication");
+                assert_eq!(
+                    error.error,
+                    "Invalid authentication credentials were presented."
+                );
+            }
+            _ => {
+                panic!("received an unexpected variant for Tracker response");
+            }
+        }
     }
 }
